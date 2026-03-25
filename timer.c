@@ -1,65 +1,58 @@
 #include "timer.h"
 
-void hfclksel(void)
+// Default periods for Timer 1 (1s) and Timer 2 (2s)
+#define TIMER1_PERIOD_MSEC 1000U
+#define TIMER2_PERIOD_MSEC 2000U
+
+void hardware_init(void)
 {
-    // Set the clock select register to use the high-frequency clock
-    *cs_register = 0 << 3; //[3:2] 0 - no divider ; 1- divide by 2; 2- divide by 4(default); 3- divide by 8; source selection[1:0]0-IMO(default); 1-EXTCLK; 2-ECO
-}
-void peri_clk_config(void)
-{
-    // 1. Disable the Specific divider
-    div_ED(DISABLE);
-    // 2.configure that specific divider value
-    config_div(4); // Divide by 4
-    // 3.Enable the specific divider
-    div_ED(ENABLE);
-    // 4.Assign this clock to the required peripheral
-    assignclk_peri();
-}
-void div_ED(int ED)
-{
-    // Enable or Disable the divider based on the input parameter
-    if (ED == ENABLE) // 0th bit is enable bit
-    {
-        *cmd_register |= (1 << 31) | (3 << 14) | (63 << 8) | (1 << 6) | (3 << 0); // PERI_DIV_CMD
-        // Enable the divder 31:bit, Keep 3 at 15:14 and 63 13:8 this selects the HFCLK as reference , Select 16 bit divider 7:6, and Select the divider no 3 using 5:0;
-    }
-    else
-    {
-        *cmd_register &= ~(1 << 30); // Disable the divider by clearing the 30th bit PERI_DIV_CMD
-    }
-}
-void config_div(int value)
-{
-    // using divider 0
-    *div0_register = (value - 1) << 8; // Integer division by (1+INT16_DIV). Allows for integer divisions in the range [1, 65,536]. Note: this type of divider does NOT allow for a fractional division.
-}
-void assignclk_peri(void)
-{
-    // Assign the configured divider to the required peripheral
-    *peri_register = (1 << 6) | (3 << 0); // Specify Divider type 7:6 and Selected Divider 3:0 in register PERI_PCLK_CTL6 TCPWM1 is PERIPHERAL 6
-}
-void timer0_init(void)
-{
-    *timer_ctrl_reg &= ~(1 << 0);               // Disable Timer 0  in TCPWM_CTRL Register
-    *t0_ctrl_cnt_reg = 0;                       // Clear the counter register of  TCPWM0 TCPWM_CNT0_COUNTER Register
-    *t0_ctrl2_cnt_reg = 0;                      // Clear the  register of  TCPWM0 TCPWM_CNT0_TR_CTRL2 Register
-    *t0_cnt_prd_reg = (TIMER0_PERIOD_MSEC - 1); // Set the Period Register of TCPWM0 TCPWM_CNT0_PERIOD Register
-    *t0_cnt0_ctrl_reg |= (0 << 24);             // Mode configuration of for TCPWM0, TCPWM_CNT2_CTRL Regsiter
-    *timer_ctrl_reg |= (1 << 0);                // Enable Timer 0  in TCPWM_CTRL Register
-    *timer_cmd_reg = (1 << 24);                 // Triger start Timer 0  in TCPWM_CMD Register
-}
-void timer1_init(void)
-{
-    // Timer 1 initialization code can be added here
-}
-void timer2_init(void)
-{
-    // Timer 2 initialization code can be added here
-}
-void LEDs_init(void)
-{
-    // GPIO pin init for RGB LED
-    *((uint32_t *)0x40040000) = (0 << 0) | (0 << 1) | (0 << 2); // Set default output value of P0.0, P0.1, P0.2 to 0 in GPIO_PRT0_DR
-    *((uint32_t *)0x40040008) = (6 << 0) | (6 << 4) | (6 << 8); // Set drive mode of P0.0, P0.1, P0.2 to Digital OP Push Pull in GPIO_PRT0_PC
+    // 1. Configure the HF CLOCK
+    *((volatile uint32_t *)CLK_SELECT) = (0 << 3); 
+
+    // 2. Configure 16-bit Clock Divider 1 and 2 to generate 1 kHz clocks
+    // Disable Divider 1 and 2
+    *((volatile uint32_t *)PERI_DIV_CMD) = (1UL << 30) | (3 << 14) | (63 << 8) | (1 << 6) | (1 << 0);
+    *((volatile uint32_t *)PERI_DIV_CMD) = (1UL << 30) | (3 << 14) | (63 << 8) | (1 << 6) | (2 << 0);
+    // Set division values: 24000 - 1
+    *((volatile uint32_t *)PERI_DIV_16_CTL1) = (24000 - 1) << 8;
+    *((volatile uint32_t *)PERI_DIV_16_CTL2) = (24000 - 1) << 8;
+    // Enable Divider 1 and 2
+    *((volatile uint32_t *)PERI_DIV_CMD) = (1UL << 31) | (3 << 14) | (63 << 8) | (1 << 6) | (1 << 0);
+    *((volatile uint32_t *)PERI_DIV_CMD) = (1UL << 31) | (3 << 14) | (63 << 8) | (1 << 6) | (2 << 0);
+
+    // 3. Route Clock Dividers to TCPWM Peripherals
+    *((volatile uint32_t *)PERI_PCLK_CTL7) = (1 << 6) | (1 << 0);  // Divider 1 to TCPWM1
+    *((volatile uint32_t *)PERI_PCLK_CTL8) = (1 << 6) | (2 << 0);  // Divider 2 to TCPWM2
+
+    // 4. Initialize GPIO for LEDs and Switch
+    // Set Data Registers logic High (LED Off, Switch Pull-up initialized High)
+    *((volatile uint32_t *)GPIO_PRT0_DR) |= (1 << 0) | (1 << 1); 
+    *((volatile uint32_t *)GPIO_PRT1_DR) |= (1 << 0);            
+
+    // Set Drive mode to Strong Drive (6) for P0.0 (Red) and P0.1 (Green)
+    *((volatile uint32_t *)GPIO_PRT0_PC) = (*((volatile uint32_t *)GPIO_PRT0_PC) & ~((7 << 0) | (7 << 3))) | (6 << 0) | (6 << 3);
+    
+    // Set Drive mode to Resistive Pull-Up (3) for Switch on P1.0
+    *((volatile uint32_t *)GPIO_PRT1_PC) = (*((volatile uint32_t *)GPIO_PRT1_PC) & ~(7 << 0)) | (3 << 0);
+
+    // 5. Initialize TCPWM1 and TCPWM2
+    // Disable TCPWM1 and TCPWM2
+    *((volatile uint32_t *)TCPWM_CTRL) &= ~((1 << 1) | (1 << 2));
+    
+    // Timer 1 setup
+    *((volatile uint32_t *)TCPWM_CNT1_COUNTER) = 0;
+    *((volatile uint32_t *)TCPWM_CNT1_CTRL) = 0;
+    *((volatile uint32_t *)TCPWM_CNT1_PERIOD) = (TIMER1_PERIOD_MSEC - 1);
+
+    // Timer 2 setup
+    *((volatile uint32_t *)TCPWM_CNT2_COUNTER) = 0;
+    *((volatile uint32_t *)TCPWM_CNT2_CTRL) = 0;
+    *((volatile uint32_t *)TCPWM_CNT2_PERIOD) = (TIMER2_PERIOD_MSEC - 1);
+
+    // Enable TCPWM1 and TCPWM2
+    *((volatile uint32_t *)TCPWM_CTRL) |= (1 << 1) | (1 << 2);
+
+    // 6. Start TCPWM1 and TCPWM2 using RELOAD commands
+    // Bit 9 is Timer 1, Bit 10 is Timer 2
+    *((volatile uint32_t *)TCPWM_CMD) = (1 << 9) | (1 << 10);
 }
