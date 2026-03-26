@@ -44,7 +44,9 @@ This project uses a standard Make environment paired with the `arm-none-eabi-gcc
 make clean
 
 # Build the executable (timer.elf / timer.hex)
-make
+make all
+#flash
+make program
 ```
 
 Flash the generated `timer.hex` file using the Cypress Programmer or a standard SWD programming tool.
